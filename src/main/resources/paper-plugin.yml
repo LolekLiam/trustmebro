@@ -1,0 +1,4 @@
+name: trustmebro
+version: '${version}'
+main: com.ravijol1.trustmebro.Trustmebro
+api-version: '1.21'

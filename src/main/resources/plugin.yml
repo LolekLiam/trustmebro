@@ -1,0 +1,14 @@
+name: trustmebro
+version: '${version}'
+main: com.ravijol1.trustmebro.Trustmebro
+api-version: '1.21'
+commands:
+  register:
+    description: Register a password for your account
+    usage: /register <password> <confirm>
+  login:
+    description: Authenticate with your password when joining from a new IP
+    usage: /login <password>
+  changepassword:
+    description: Change your account password
+    usage: /changepassword <old> <new> <confirm>
