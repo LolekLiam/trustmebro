@@ -1,7 +1,12 @@
 package com.ravijol1.trustmebro.listeners
 
 import com.ravijol1.trustmebro.Trustmebro
+import com.ravijol1.trustmebro.commands.RegisterCommand
+import com.ravijol1.trustmebro.commands.LoginCommand
+import com.ravijol1.trustmebro.commands.ChangePasswordCommand
+import org.bukkit.command.Command
 import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.player.*
 import org.bukkit.event.player.AsyncPlayerChatEvent
@@ -13,7 +18,7 @@ import org.bukkit.event.player.PlayerQuitEvent
 
 class AuthListener(private val plugin: Trustmebro) : Listener {
 
-    private val allowedCommands = setOf("/login", "/register", "/changepassword")
+    private val allowedCommands = setOf("login", "register", "changepassword")
 
     @EventHandler
     fun onJoin(e: PlayerJoinEvent) {
@@ -47,16 +52,56 @@ class AuthListener(private val plugin: Trustmebro) : Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onCommand(e: PlayerCommandPreprocessEvent) {
         val p = e.player
-        val raw = e.message.trim()
-        val msg = raw.lowercase()
-        if (plugin.isAuthenticated(p)) return
-        val isAllowed = allowedCommands.any { msg == it || msg.startsWith("$it ") }
-        if (!isAllowed) {
+        val originalRaw = e.message
+        val raw = originalRaw.trim()
+
+        // Normalize: strip leading slash, collapse whitespace, lowercase, drop namespace
+        val noSlash = if (raw.startsWith("/")) raw.substring(1) else raw
+        val parts = noSlash.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val fullLabel = parts.firstOrNull()?.lowercase() ?: return
+        val baseLabel = fullLabel.substringAfterLast(':')
+
+        if (baseLabel in allowedCommands) {
+            // Overwrite the message to a benign value so NOTHING logs sensitive args
+            e.message = "/."
+            // Suppress console logging by cancelling the event and executing manually
+            e.isCancelled = true
+
+            val args = if (parts.size > 1) parts.drop(1).toTypedArray() else emptyArray()
+
+            // Dispatch to the appropriate executor without letting Bukkit log the command
+            dispatchSensitiveCommandSilently(p, baseLabel, args)
+            return
+        }
+
+        // Not a sensitive command → enforce auth gate
+        if (!plugin.isAuthenticated(p)) {
             p.sendMessage("§cYou must authenticate. Allowed commands: /register, /login, /changepassword")
             e.isCancelled = true
+        }
+    }
+
+    private fun dispatchSensitiveCommandSilently(sender: org.bukkit.entity.Player, label: String, args: Array<String>) {
+        val executor = when (label) {
+            "register" -> RegisterCommand(plugin)
+            "login" -> LoginCommand(plugin)
+            "changepassword" -> ChangePasswordCommand(plugin)
+            else -> return
+        }
+        // Create a minimal dummy Command for the executor API
+        val dummy = object : Command(label) {
+            override fun execute(sender0: org.bukkit.command.CommandSender, commandLabel: String, args0: Array<out String>): Boolean {
+                return false
+            }
+        }
+        try {
+            executor.onCommand(sender, dummy, label, args)
+        } catch (t: Throwable) {
+            // Do not leak sensitive args to console
+            plugin.logger.warning("An error occurred while executing a sensitive command for ${sender.name}. Check stacktrace in debug builds.")
         }
     }
 
